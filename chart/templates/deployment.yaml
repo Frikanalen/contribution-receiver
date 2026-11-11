@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mediamtx
+  labels:
+    app: mediamtx
+spec:
+  replicas: 1
+  # Publishers and readers must share the same process. Do not briefly run
+  # two instances and load-balance different ends of the same contribution.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mediamtx
+  template:
+    metadata:
+      labels:
+        app: mediamtx
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mediamtx
+{{- if .Values.preview.enabled }}
+          # The on-demand Opus converter runs FFmpeg inside this container.
+          image: {{ .Values.preview.image | quote }}
+{{- else }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+{{- end }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["/mediamtx.yml"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          ports:
+            - name: srt
+              containerPort: 8890
+              protocol: UDP
+            - name: rtmp
+              containerPort: 1935
+              protocol: TCP
+            - name: rtsp
+              containerPort: 8554
+              protocol: TCP
+{{- if .Values.webrtc.enabled }}
+            - name: webrtc-http
+              containerPort: 8889
+              protocol: TCP
+            - name: webrtc-udp
+              containerPort: 8189
+              protocol: UDP
+            - name: webrtc-tcp
+              containerPort: 8189
+              protocol: TCP
+{{- end }}
+{{- if .Values.monitoring.enabled }}
+            - name: metrics
+              containerPort: 9998
+              protocol: TCP
+{{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: rtsp
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: rtsp
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+{{- if .Values.preview.enabled }}
+{{ toYaml .Values.preview.resources | indent 12 }}
+{{- else }}
+{{ toYaml .Values.resources | indent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /mediamtx.yml
+              subPath: mediamtx.yml
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: mediamtx

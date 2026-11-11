@@ -1,0 +1,94 @@
+{{- if and .Values.webrtc.enabled (empty .Values.webrtc.additionalHosts) }}
+{{- fail "webrtc.additionalHosts must contain a reachable public address" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mediamtx
+  labels:
+    app: mediamtx
+data:
+  mediamtx.yml: |
+    logLevel: info
+    logDestinations: [stdout]
+{{- with .Values.writeQueueSize }}
+    writeQueueSize: {{ . }}
+{{- end }}
+    authMethod: http
+    authHTTPAddress: {{ required "authURL must point to Django's MediaMTX callback" .Values.authURL | quote }}
+{{- if .Values.monitoring.enabled }}
+    # Metrics are exposed only by an internal ClusterIP Service.
+    authHTTPExclude:
+      - action: metrics
+{{- else }}
+    authHTTPExclude: []
+{{- end }}
+    api: false
+    metrics: {{ .Values.monitoring.enabled }}
+{{- if .Values.monitoring.enabled }}
+    metricsAddress: :9998
+{{- end }}
+    pprof: false
+    playback: false
+    rtsp: true
+    rtspAddress: :8554
+    rtspTransports: [tcp]
+    rtmp: true
+    rtmpAddress: :1935
+    hls: false
+    webrtc: {{ .Values.webrtc.enabled }}
+{{- if .Values.webrtc.enabled }}
+    webrtcAddress: :8889
+    webrtcEncryption: false
+    webrtcAllowOrigins: {{ prepend .Values.webrtc.allowOrigins (printf "https://%s" (required "webrtc.hostname must be configured" .Values.webrtc.hostname)) | toJson }}
+    webrtcLocalUDPAddress: :8189
+    webrtcLocalTCPAddress: :8189
+    webrtcIPsFromInterfaces: false
+    webrtcAdditionalHosts: {{ required "webrtc.additionalHosts must contain a reachable public address" .Values.webrtc.additionalHosts | toJson }}
+{{- end }}
+    moq: false
+    srt: true
+    srtAddress: :8890
+    pathDefaults:
+      source: publisher
+      overridePublisher: false
+      record: false
+      # Regex paths support authenticated ingest; fallback requires an
+      # explicit per-source path supplied by the future controller.
+      alwaysAvailable: false
+      alwaysAvailableTracks:
+        - codec: H264
+        - codec: MPEG4Audio
+          sampleRate: 48000
+          channelCount: 2
+    paths:
+{{ toYaml .Values.paths | indent 6 }}
+{{- if .Values.preview.enabled }}
+      # Converted only while someone watches: MediaMTX starts FFmpeg when a
+      # reader opens a preview and stops it once the last one leaves. FFmpeg
+      # reads the original and publishes back over loopback RTSP without a
+      # credential; Django accepts exactly that from loopback, for enabled
+      # sources only. $G1 is the source UUID. With no credential in its URLs,
+      # FFmpeg's warnings can go to the MediaMTX log.
+      "~^contrib/preview/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$":
+        runOnDemand: >-
+          sh -c 'exec ffmpeg -nostdin -hide_banner -loglevel warning
+          -rtsp_transport tcp -fflags nobuffer -flags low_delay
+          -analyzeduration 250000 -probesize 262144 -threads 2
+          -i "rtsp://127.0.0.1:$RTSP_PORT/contrib/live/$G1"
+          -map 0:v:0 -map 0:a:0?
+          -vf scale=-2:{{ .Values.preview.videoHeight }},fps={{ .Values.preview.videoFps }} -pix_fmt yuv420p
+          -c:v libvpx -threads 2 -deadline realtime -cpu-used 8 -lag-in-frames 0
+          -auto-alt-ref 0 -error-resilient 1
+          -b:v {{ .Values.preview.videoBitrate }} -maxrate {{ .Values.preview.videoBitrate }}
+          -force_key_frames "expr:gte(t,n_forced)"
+          -c:a libopus -application lowdelay
+          -frame_duration {{ .Values.preview.opusFrameDuration }}
+          -b:a {{ .Values.preview.opusBitrate }} -ar 48000 -ac 2
+          -flush_packets 1 -muxdelay 0 -rtsp_transport tcp
+          -f rtsp "rtsp://127.0.0.1:$RTSP_PORT/$MTX_PATH"'
+        runOnDemandRestart: true
+        runOnDemandStartTimeout: {{ .Values.preview.startTimeout | quote }}
+        runOnDemandCloseAfter: {{ .Values.preview.closeAfter | quote }}
+{{- end }}
+

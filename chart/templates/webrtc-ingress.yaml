@@ -1,0 +1,39 @@
+{{- if .Values.webrtc.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: mediamtx-webrtc
+spec:
+  selector:
+    app: mediamtx
+  ports:
+    - name: http
+      port: 8889
+      targetPort: webrtc-http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mediamtx-webrtc
+  annotations:
+    traefik.ingress.kubernetes.io/router.tls.certresolver: {{ .Values.webrtc.certResolver | quote }}
+spec:
+  ingressClassName: {{ .Values.webrtc.ingressClassName }}
+  tls:
+    - hosts:
+        - {{ .Values.webrtc.hostname | quote }}
+  rules:
+    - host: {{ .Values.webrtc.hostname | quote }}
+      http:
+        paths:
+          # Every MediaMTX path starts with contrib/, so this one prefix keeps
+          # paths and WHEP Location/PATCH/DELETE URLs unchanged. /contrib is
+          # reserved for streams, not frontend pages.
+          - path: /contrib
+            pathType: Prefix
+            backend:
+              service:
+                name: mediamtx-webrtc
+                port:
+                  name: http
+{{- end }}
