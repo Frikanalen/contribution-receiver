@@ -1,0 +1,42 @@
+{{- if and .Values.monitoring.serviceMonitor.enabled (not .Values.monitoring.enabled) }}
+{{- fail "monitoring.serviceMonitor.enabled requires monitoring.enabled" }}
+{{- end }}
+{{- if .Values.monitoring.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: mediamtx-metrics
+  labels:
+    app: mediamtx
+    component: metrics
+spec:
+  type: ClusterIP
+  selector:
+    app: mediamtx
+  ports:
+    - name: metrics
+      port: 9998
+      targetPort: metrics
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: mediamtx
+  labels:
+    app: mediamtx
+{{ with .Values.monitoring.serviceMonitor.additionalLabels }}
+{{ toYaml . | indent 4 }}
+{{ end }}
+spec:
+  selector:
+    matchLabels:
+      app: mediamtx
+      component: metrics
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.monitoring.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.monitoring.serviceMonitor.scrapeTimeout }}
+{{- end }}
+{{- end }}
