@@ -119,5 +119,47 @@ class RenderTests(unittest.TestCase):
         config = yaml.safe_load(find(documents, "ConfigMap", "mediamtx")["data"]["mediamtx.yml"])
         self.assertEqual(config["writeQueueSize"], 8192)
 
+    def test_without_pull_the_live_path_has_no_relay_and_no_policy(self):
+        documents = render()
+        config = yaml.safe_load(find(documents, "ConfigMap", "mediamtx")["data"]["mediamtx.yml"])
+        [(name, path)] = [(k, v) for k, v in config["paths"].items() if "live" in k]
+        self.assertEqual(path, {})
+        self.assertFalse(any(d["kind"] == "NetworkPolicy" for d in documents))
+        self.assertFalse(any(d["metadata"]["name"] == "mediamtx-pull" for d in documents))
+
+    def test_pull_runs_the_relay_on_demand_on_the_live_path(self):
+        documents = render("pull.enabled=true", "pull.credentialSecret=mediamtx-pull")
+        config = yaml.safe_load(find(documents, "ConfigMap", "mediamtx")["data"]["mediamtx.yml"])
+        [(name, path)] = [(k, v) for k, v in config["paths"].items() if "live" in k]
+        self.assertTrue(name.startswith("~^contrib/live/("))
+        self.assertEqual(path["runOnDemand"], "/pull/pull-source $G1 $RTSP_PORT $MTX_PATH")
+        self.assertTrue(path["runOnDemandRestart"])
+        self.assertEqual(path["runOnDemandStartTimeout"], "15s")
+        script = find(documents, "ConfigMap", "mediamtx-pull")["data"]["pull-source"]
+        self.assertTrue(script.startswith("#!/bin/sh"))
+        self.assertIn("-protocol_whitelist", script)
+        self.assertIn('"rtsp://127.0.0.1:$2/$3"', script)
+        self.assertNotIn("http://*)", script)
+        pod = find(documents, "Deployment", "mediamtx")["spec"]["template"]["spec"]
+        container = pod["containers"][0]
+        self.assertTrue(container["image"].endswith("-ffmpeg"))
+        env = {e["name"]: e for e in container["env"]}
+        self.assertEqual(env["FK_PULL_CREDENTIAL"]["valueFrom"]["secretKeyRef"]["name"], "mediamtx-pull")
+        self.assertFalse(any(name.startswith("MTX_") for name in env))
+        self.assertIn("/pull", [m["mountPath"] for m in container["volumeMounts"]])
+        render("pull.enabled=true", succeeds=False)
+
+    def test_network_policy_keeps_mediamtx_off_the_lan_but_lets_it_reach_django(self):
+        documents = render("networkPolicy.enabled=true")
+        policy = find(documents, "NetworkPolicy", "mediamtx-egress")
+        self.assertEqual(policy["spec"]["policyTypes"], ["Egress"])
+        internet, django, dns = policy["spec"]["egress"]
+        self.assertIn("192.168.0.0/16", internet["to"][0]["ipBlock"]["except"])
+        self.assertIn("10.0.0.0/8", internet["to"][0]["ipBlock"]["except"])
+        self.assertEqual(django["to"][0]["podSelector"]["matchLabels"], {"app": "django-api"})
+        self.assertEqual(django["ports"], [{"protocol": "TCP", "port": 8080}])
+        self.assertEqual({p["port"] for p in dns["ports"]}, {53})
+
+
 if __name__ == "__main__":
     unittest.main()

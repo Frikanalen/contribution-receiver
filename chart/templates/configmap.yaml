@@ -62,7 +62,22 @@ data:
           sampleRate: 48000
           channelCount: 2
     paths:
-{{ toYaml .Values.paths | indent 6 }}
+      # Regex paths support authenticated ingest; fallback (alwaysAvailable)
+      # would need an explicit per-source path.
+{{- if .Values.pull.enabled }}
+      # A pulled source is filled by the pull relay when someone reads it.
+      # MediaMTX expands $G1 (the source UUID), $RTSP_PORT and $MTX_PATH.
+      "~^contrib/live/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$":
+        runOnDemand: /pull/pull-source $G1 $RTSP_PORT $MTX_PATH
+        runOnDemandRestart: true
+        runOnDemandStartTimeout: {{ .Values.pull.startTimeout | quote }}
+        runOnDemandCloseAfter: {{ .Values.pull.closeAfter | quote }}
+{{- else }}
+      "~^contrib/live/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$": {}
+{{- end }}
+{{- with .Values.paths }}
+{{ toYaml . | indent 6 }}
+{{- end }}
 {{- if .Values.preview.enabled }}
       # Converted only while someone watches: MediaMTX starts FFmpeg when a
       # reader opens a preview and stops it once the last one leaves. FFmpeg
