@@ -52,6 +52,9 @@ spec:
                 secretKeyRef:
                   name: {{ required "pull.credentialSecret must name the pull relay's Secret" .Values.pull.credentialSecret | quote }}
                   key: FK_PULL_CREDENTIAL
+                  # Until it exists the relay is refused by Django, and
+                  # pushed sources work as before.
+                  optional: true
 {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
