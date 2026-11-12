@@ -12,6 +12,8 @@ forwarding. The existing Application name and Kubernetes resource names remain
 - Django authorizes every media connection at `/api/mediamtx/auth`.
 - Publish credentials can publish only the contribution. Read credentials can
   read the contribution and derived preview for their own source.
+- With `pull.enabled`, the pull relay fills pulled sources' contribution
+  paths (see "Pulled sources").
 - The on-demand preview converter has no credential. From loopback, it may only
   read an enabled source's contribution and publish that source's preview over
   RTSP (see below).
@@ -83,6 +85,35 @@ one core per watched source, so enabling previews also swaps `resources` for
 `preview.resources` (a 4-core limit). Both decoder and encoder use two threads,
 and the preview is capped at `preview.videoFps` (25). FFmpeg's warnings go to the
 MediaMTX log, and MediaMTX path metrics show whether a preview is receiving data.
+
+## Pulled sources
+
+A live source can be pulled from an address (SRT caller, RTMP(S), RTSP(S),
+or HLS over HTTPS) instead of pushed to. With `pull.enabled`, the
+`contrib/live/<UUID>` path gets a `runOnDemand` pull relay
+(`templates/pull-configmap.yaml`): when someone reads the path and nobody
+publishes, MediaMTX runs it, and it asks Django
+(`/api/mediamtx/pull/<UUID>`, with the relay credential in
+`pull.credentialSecret`) for the source's address.
+
+- A pulled source: FFmpeg reads the address and publishes it back over
+  loopback RTSP, video copied and audio re-encoded to AAC 48 kHz stereo.
+  Django lets loopback publish a pulled source's contribution path only.
+- A pushed source: Django answers 204 and the relay idles until MediaMTX
+  stops it. Readers waiting for an encoder now wait up to
+  `pull.startTimeout` instead of being refused at once.
+- MediaMTX stops the relay `pull.closeAfter` after the last reader leaves,
+  and restarts it if the remote end drops.
+
+The address is a secret, so the relay fetches it on each start and scrubs it
+from FFmpeg's log lines. For HLS, give the media playlist of the variant to
+pull; with a master playlist FFmpeg takes the first variant's video.
+
+`networkPolicy.enabled` keeps MediaMTX from opening connections to private
+addresses (the LAN, pods, services) other than Django and DNS, since the relay
+fetches addresses members type in. Django also refuses non-public addresses
+when they are saved, but only the policy covers a name that later resolves
+somewhere else.
 
 ## Optional Prometheus Operator support
 

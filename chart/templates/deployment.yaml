@@ -19,6 +19,9 @@ spec:
         app: mediamtx
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+{{- if .Values.pull.enabled }}
+        checksum/pull: {{ include (print $.Template.BasePath "/pull-configmap.yaml") . | sha256sum }}
+{{- end }}
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -30,14 +33,29 @@ spec:
           type: RuntimeDefault
       containers:
         - name: mediamtx
-{{- if .Values.preview.enabled }}
-          # The on-demand Opus converter runs FFmpeg inside this container.
+{{- if or .Values.preview.enabled .Values.pull.enabled }}
+          # The on-demand Opus converter and the pull relay run FFmpeg inside
+          # this container.
           image: {{ .Values.preview.image | quote }}
 {{- else }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
 {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["/mediamtx.yml"]
+{{- if .Values.pull.enabled }}
+          env:
+            - name: FK_PULL_ADDRESS_URL
+              value: {{ .Values.pull.addressURL | quote }}
+            # Not MTX_*: MediaMTX reads those as configuration.
+            - name: FK_PULL_CREDENTIAL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "pull.credentialSecret must name the pull relay's Secret" .Values.pull.credentialSecret | quote }}
+                  key: FK_PULL_CREDENTIAL
+                  # Until it exists the relay is refused by Django, and
+                  # pushed sources work as before.
+                  optional: true
+{{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -80,7 +98,7 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
           resources:
-{{- if .Values.preview.enabled }}
+{{- if or .Values.preview.enabled .Values.pull.enabled }}
 {{ toYaml .Values.preview.resources | indent 12 }}
 {{- else }}
 {{ toYaml .Values.resources | indent 12 }}
@@ -90,7 +108,18 @@ spec:
               mountPath: /mediamtx.yml
               subPath: mediamtx.yml
               readOnly: true
+{{- if .Values.pull.enabled }}
+            - name: pull
+              mountPath: /pull
+              readOnly: true
+{{- end }}
       volumes:
         - name: config
           configMap:
             name: mediamtx
+{{- if .Values.pull.enabled }}
+        - name: pull
+          configMap:
+            name: mediamtx-pull
+            defaultMode: 0555
+{{- end }}

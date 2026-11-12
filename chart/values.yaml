@@ -19,11 +19,46 @@ resources:
 # that plays in real time, like CasparCG, loses frames to "reader is too slow".
 writeQueueSize: null
 
-# Django authorizes each exact path. All paths live under contrib/ so the
-# WebRTC Ingress needs a single prefix on the site's hostname. An explicit UUID path can later override
-# this with alwaysAvailable: true; MediaMTX forbids fallback on regex paths.
-paths:
-  "~^contrib/live/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$": {}
+# Extra MediaMTX paths. The contributions' own path, contrib/live/<UUID>, is
+# always there (see the ConfigMap). Django authorizes each exact path. All
+# paths live under contrib/ so the WebRTC Ingress needs a single prefix on
+# the site's hostname.
+paths: {}
+
+# Pulled live sources: when someone reads contrib/live/<UUID> and nobody
+# publishes, MediaMTX runs the pull relay. It asks Django for the source's
+# pull address and, for a pulled source, republishes it with FFmpeg over
+# loopback RTSP (video copied, audio to AAC 48 kHz). For a pushed source
+# Django has no address, and the relay waits idle for an encoder.
+pull:
+  enabled: false
+  # A Secret with FK_PULL_CREDENTIAL=<key id>:<password>, Django's pull
+  # relay credential (manage.py ensure_pull_credential).
+  credentialSecret: ""
+  # Django's pull address endpoint, without the trailing source UUID.
+  addressURL: http://django-api.default.svc.cluster.local:8080/api/mediamtx/pull
+  # How long readers wait for the first packets (HLS can take several
+  # seconds), and how long the pull outlives its last reader.
+  startTimeout: 15s
+  closeAfter: 30s
+  audioBitrate: 192k
+
+# Keeps MediaMTX, and the pull relay inside it, from opening connections to
+# the cluster or the LAN: an address a member typed in is fetched from here.
+# Replies to connections made to MediaMTX are always allowed.
+networkPolicy:
+  enabled: false
+  # Never reached on egress, except Django and DNS below.
+  deniedCIDRs:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - 100.64.0.0/10
+    - 169.254.0.0/16
+    - 127.0.0.0/8
+  djangoPodLabels:
+    app: django-api
+  djangoPort: 8080
 
 webrtc:
   enabled: false
@@ -38,7 +73,8 @@ webrtc:
 
 preview:
   enabled: false
-  # Replaces image above while enabled: the same MediaMTX build plus FFmpeg.
+  # Replaces image above while preview or pull is enabled: the same
+  # MediaMTX build plus FFmpeg.
   image: bluenviron/mediamtx:1.21.3-ffmpeg
   # Every WebRTC browser can decode VP8, Firefox included without its
   # OpenH264 plugin, so the preview is a small VP8 copy of the picture.
@@ -47,7 +83,8 @@ preview:
   videoFps: 25
   # Each watched source decodes its contribution and encodes VP8, about one
   # core for 1080p; at the plain limit of one core the converter fell behind
-  # and MediaMTX dropped its input. Replaces resources above while enabled.
+  # and MediaMTX dropped its input. Replaces resources above while preview
+  # or pull is enabled.
   resources:
     requests:
       cpu: 500m

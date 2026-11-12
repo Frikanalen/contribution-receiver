@@ -1,0 +1,64 @@
+{{- if .Values.pull.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mediamtx-pull
+  labels:
+    app: mediamtx
+data:
+  pull-source: |
+    #!/bin/sh
+    # The pull relay. MediaMTX runs it when someone reads contrib/live/<UUID>
+    # and nobody publishes there, and stops it (SIGINT to the whole process
+    # group) once the last reader has been gone a while.
+    #
+    #   $1  the source UUID    $2  MediaMTX's RTSP port    $3  the path
+    #
+    # The pull address is a secret (passphrases, stream keys and tokens ride
+    # in it), so it is fetched from Django on each start, never stored here,
+    # and scrubbed from FFmpeg's messages before they reach the log.
+    set -u
+    id="$1"
+    say() { echo "pull-source $id: $*" >&2; }
+
+    auth=$(printf '%s' "$FK_PULL_CREDENTIAL" | base64 | tr -d '\n')
+    if ! url=$(wget -q -T 5 -O - --header "Authorization: Basic $auth" "$FK_PULL_ADDRESS_URL/$id"); then
+      # Django down, or the credential refused: MediaMTX tries again.
+      say "cannot get the pull address from Django"
+      exit 1
+    fi
+    if [ -z "$url" ]; then
+      # A pushed (or disabled) source: an encoder publishes here, not us.
+      # Idle until MediaMTX stops us, rather than restarting every 5 s.
+      exec sleep 2147483647
+    fi
+
+    # What FFmpeg may open for each kind of address. Never file: or plain
+    # HTTP, which an HLS playlist could otherwise point at.
+    input_options=""
+    case "$url" in
+      srt://*) allow=srt ;;
+      rtmp://* | rtmps://*) allow=rtmp,rtmps,tcp,tls ;;
+      rtsp://* | rtsps://*) allow=rtsp,rtsps,rtp,tcp,tls,udp; input_options="-rtsp_transport tcp" ;;
+      https://*) allow=https,tls,tcp,crypto,data ;;
+      *) say "refusing an address of an unknown kind"; exit 1 ;;
+    esac
+
+    say "pulling from $(echo "$url" | sed -E 's#^([a-z]+://)([^@/]*@)?([^/?]*).*#\1\3#')"
+    # shellcheck disable=SC2086
+    ffmpeg -nostdin -hide_banner -loglevel warning \
+      -protocol_whitelist "$allow" -rw_timeout 15000000 $input_options \
+      -i "$url" \
+      -map 0:v:0 -map "0:a:0?" \
+      -c:v copy \
+      -c:a aac -b:a {{ .Values.pull.audioBitrate }} -ar 48000 -ac 2 \
+      -f rtsp -rtsp_transport tcp "rtsp://127.0.0.1:$2/$3" 2>&1 |
+      awk -v u="$url" -v id="$id" '{
+        while (u != "" && (i = index($0, u)) > 0)
+          $0 = substr($0, 1, i - 1) "<pull address>" substr($0, i + length(u))
+        print "pull-source " id ": " $0
+        fflush()
+      }' >&2
+    say "FFmpeg ended"
+    exit 1
+{{- end }}
