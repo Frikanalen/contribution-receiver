@@ -47,6 +47,26 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(config["authHTTPExclude"], [{"action": "metrics"}])
         self.assertFalse(config["api"])
 
+    def test_programme_return_is_off_by_default_and_needs_a_source(self):
+        config = yaml.safe_load(find(render(), "ConfigMap", "mediamtx")["data"]["mediamtx.yml"])
+        self.assertNotIn("contrib/program", config["paths"])
+        render("programReturn.enabled=true", succeeds=False)
+
+    def test_programme_return_converts_on_demand_and_may_reach_only_its_source(self):
+        documents = render("programReturn.enabled=true", "networkPolicy.enabled=true",
+                           "programReturn.sourceURL=http://cubemap.default.svc:9094/stream.ts",
+                           "programReturn.sourceCIDRs[0]=192.168.3.0/24")
+        config = yaml.safe_load(find(documents, "ConfigMap", "mediamtx")["data"]["mediamtx.yml"])
+        path = config["paths"]["contrib/program"]
+        self.assertIn('-i "http://cubemap.default.svc:9094/stream.ts"', path["runOnDemand"])
+        self.assertIn("libvpx", path["runOnDemand"])
+        self.assertIn("rtsp://127.0.0.1:$RTSP_PORT/$MTX_PATH", path["runOnDemand"])
+        container = find(documents, "Deployment", "mediamtx")["spec"]["template"]["spec"]["containers"][0]
+        self.assertTrue(container["image"].endswith("-ffmpeg"))
+        egress = find(documents, "NetworkPolicy", "mediamtx-egress")["spec"]["egress"]
+        [rule] = [r for r in egress if r.get("ports") == [{"protocol": "TCP", "port": 9094}]]
+        self.assertEqual(rule["to"], [{"ipBlock": {"cidr": "192.168.3.0/24"}}])
+
     def test_api_is_off_unless_asked_for(self):
         documents = render()
         config = yaml.safe_load(find(documents, "ConfigMap", "mediamtx")["data"]["mediamtx.yml"])

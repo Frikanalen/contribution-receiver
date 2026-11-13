@@ -133,6 +133,23 @@ disabled is rejected. Metrics port 9998 is not on the public LoadBalancer or
 Ingress. Only the internal metrics action is excluded from Django HTTP auth;
 media publish/read checks remain enforced.
 
+## Programme return
+
+```yaml
+programReturn:
+  enabled: true
+  sourceURL: http://stream-live-stream-packager-cubemap.default.svc.cluster.local:9094/stream.ts
+  sourceCIDRs: [192.168.3.0/24]   # only with networkPolicy.enabled
+```
+
+publishes a small VP8/Opus copy of the channel's programme on
+`contrib/program` while someone watches it, about a second behind the
+programme itself. The site's live monitor shows it beside the source's own
+preview. FFmpeg runs inside the MediaMTX pod like the preview converter and
+needs no credential; Django lets only that loopback process publish the path
+and lets members with a preview token read it. Set Django's
+`FK_PROGRAM_RETURN_PATH` to the same path.
+
 ## Signal reports for Django
 
 ```yaml
