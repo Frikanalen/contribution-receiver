@@ -23,7 +23,12 @@ data:
 {{- else }}
     authHTTPExclude: []
 {{- end }}
-    api: false
+    # Every API request is authenticated by Django like any other, and
+    # Django accepts only the token it signs for itself.
+    api: {{ .Values.api.enabled }}
+{{- if .Values.api.enabled }}
+    apiAddress: :9997
+{{- end }}
     metrics: {{ .Values.monitoring.enabled }}
 {{- if .Values.monitoring.enabled }}
     metricsAddress: :9998
@@ -106,4 +111,25 @@ data:
         runOnDemandStartTimeout: {{ .Values.preview.startTimeout | quote }}
         runOnDemandCloseAfter: {{ .Values.preview.closeAfter | quote }}
 {{- end }}
-
+{{- if .Values.programReturn.enabled }}
+      {{ .Values.programReturn.path | quote }}:
+        runOnDemand: >-
+          sh -c 'exec ffmpeg -nostdin -hide_banner -loglevel warning
+          -fflags nobuffer -flags low_delay
+          -analyzeduration 500000 -probesize 1000000 -rw_timeout 10000000
+          -i {{ required "programReturn.sourceURL must name the programme's MPEG-TS over HTTP" .Values.programReturn.sourceURL | quote }}
+          -map 0:v:0 -map 0:a:0?
+          -vf yadif=deint=interlaced,scale=-2:{{ .Values.programReturn.videoHeight }},fps={{ .Values.programReturn.videoFps }} -pix_fmt yuv420p
+          -c:v libvpx -threads 2 -deadline realtime -cpu-used 8 -lag-in-frames 0
+          -auto-alt-ref 0 -error-resilient 1
+          -b:v {{ .Values.programReturn.videoBitrate }} -maxrate {{ .Values.programReturn.videoBitrate }}
+          -force_key_frames "expr:gte(t,n_forced)"
+          -c:a libopus -application lowdelay
+          -frame_duration {{ .Values.preview.opusFrameDuration }}
+          -b:a {{ .Values.preview.opusBitrate }} -ar 48000 -ac 2
+          -flush_packets 1 -muxdelay 0 -rtsp_transport tcp
+          -f rtsp "rtsp://127.0.0.1:$RTSP_PORT/$MTX_PATH"'
+        runOnDemandRestart: true
+        runOnDemandStartTimeout: {{ .Values.programReturn.startTimeout | quote }}
+        runOnDemandCloseAfter: {{ .Values.programReturn.closeAfter | quote }}
+{{- end }}

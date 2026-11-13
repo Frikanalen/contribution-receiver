@@ -47,6 +47,46 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(config["authHTTPExclude"], [{"action": "metrics"}])
         self.assertFalse(config["api"])
 
+    def test_programme_return_is_off_by_default_and_needs_a_source(self):
+        config = yaml.safe_load(find(render(), "ConfigMap", "mediamtx")["data"]["mediamtx.yml"])
+        self.assertNotIn("contrib/program", config["paths"])
+        render("programReturn.enabled=true", succeeds=False)
+
+    def test_programme_return_converts_on_demand_and_may_reach_only_its_source(self):
+        documents = render("programReturn.enabled=true", "networkPolicy.enabled=true",
+                           "programReturn.sourceURL=http://cubemap.default.svc:9094/stream.ts",
+                           "programReturn.sourceCIDRs[0]=192.168.3.0/24")
+        config = yaml.safe_load(find(documents, "ConfigMap", "mediamtx")["data"]["mediamtx.yml"])
+        path = config["paths"]["contrib/program"]
+        self.assertIn('-i "http://cubemap.default.svc:9094/stream.ts"', path["runOnDemand"])
+        self.assertIn("libvpx", path["runOnDemand"])
+        self.assertIn("rtsp://127.0.0.1:$RTSP_PORT/$MTX_PATH", path["runOnDemand"])
+        container = find(documents, "Deployment", "mediamtx")["spec"]["template"]["spec"]["containers"][0]
+        self.assertTrue(container["image"].endswith("-ffmpeg"))
+        egress = find(documents, "NetworkPolicy", "mediamtx-egress")["spec"]["egress"]
+        [rule] = [r for r in egress if r.get("ports") == [{"protocol": "TCP", "port": 9094}]]
+        self.assertEqual(rule["to"], [{"ipBlock": {"cidr": "192.168.3.0/24"}}])
+
+    def test_api_is_off_unless_asked_for(self):
+        documents = render()
+        config = yaml.safe_load(find(documents, "ConfigMap", "mediamtx")["data"]["mediamtx.yml"])
+        self.assertFalse(config["api"])
+        self.assertFalse(any(d["metadata"]["name"] == "mediamtx-api" for d in documents))
+
+    def test_api_is_private_and_stays_behind_django_auth(self):
+        documents = render("api.enabled=true", "monitoring.enabled=true")
+        config = yaml.safe_load(find(documents, "ConfigMap", "mediamtx")["data"]["mediamtx.yml"])
+        self.assertTrue(config["api"])
+        self.assertEqual(config["apiAddress"], ":9997")
+        self.assertEqual(config["authHTTPExclude"], [{"action": "metrics"}])
+        service = find(documents, "Service", "mediamtx-api")
+        self.assertEqual(service["spec"]["type"], "ClusterIP")
+        self.assertEqual(service["spec"]["ports"][0]["targetPort"], "api")
+        ports = find(documents, "Service", "mediamtx")["spec"]["ports"]
+        self.assertNotIn(9997, [p["port"] for p in ports])
+        container = find(documents, "Deployment", "mediamtx")["spec"]["template"]["spec"]["containers"][0]
+        self.assertIn(9997, [p["containerPort"] for p in container["ports"]])
+
     def test_operator_resources_are_explicitly_opted_in(self):
         documents = render("monitoring.enabled=true", "monitoring.serviceMonitor.enabled=true",
                            "monitoring.serviceMonitor.additionalLabels.release=kube-prometheus-stack")

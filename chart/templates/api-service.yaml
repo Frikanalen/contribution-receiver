@@ -1,0 +1,17 @@
+{{- if .Values.api.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: mediamtx-api
+  labels:
+    app: mediamtx
+    component: api
+spec:
+  type: ClusterIP
+  selector:
+    app: mediamtx
+  ports:
+    - name: api
+      port: 9997
+      targetPort: api
+{{- end }}

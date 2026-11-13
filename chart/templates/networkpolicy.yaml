@@ -28,6 +28,17 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.networkPolicy.djangoPort }}
+{{- if and .Values.programReturn.enabled .Values.programReturn.sourceCIDRs }}
+    # The programme return reads the channel's output from inside the LAN.
+    - to:
+{{- range .Values.programReturn.sourceCIDRs }}
+        - ipBlock:
+            cidr: {{ . }}
+{{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.programReturn.sourcePort }}
+{{- end }}
     - to:
         - namespaceSelector:
             matchLabels:

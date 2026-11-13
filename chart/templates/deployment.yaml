@@ -33,7 +33,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: mediamtx
-{{- if or .Values.preview.enabled .Values.pull.enabled }}
+{{- if or .Values.preview.enabled .Values.pull.enabled .Values.programReturn.enabled }}
           # The on-demand Opus converter and the pull relay run FFmpeg inside
           # this container.
           image: {{ .Values.preview.image | quote }}
@@ -87,6 +87,11 @@ spec:
               containerPort: 9998
               protocol: TCP
 {{- end }}
+{{- if .Values.api.enabled }}
+            - name: api
+              containerPort: 9997
+              protocol: TCP
+{{- end }}
           readinessProbe:
             tcpSocket:
               port: rtsp
@@ -98,7 +103,7 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
           resources:
-{{- if or .Values.preview.enabled .Values.pull.enabled }}
+{{- if or .Values.preview.enabled .Values.pull.enabled .Values.programReturn.enabled }}
 {{ toYaml .Values.preview.resources | indent 12 }}
 {{- else }}
 {{ toYaml .Values.resources | indent 12 }}

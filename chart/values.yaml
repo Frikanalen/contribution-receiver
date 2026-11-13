@@ -43,6 +43,28 @@ pull:
   closeAfter: 30s
   audioBitrate: 192k
 
+# Programme return: a low-latency copy of what the channel is airing, for the
+# monitor a crew keeps up at a live transmission. While someone watches,
+# FFmpeg inside the MediaMTX pod reads the programme's MPEG-TS over HTTP
+# (the stream packager's Cubemap) and publishes a small VP8/Opus copy on
+# `path`, like the preview. Django decides who may watch
+# (FK_PROGRAM_RETURN_PATH must name the same path).
+programReturn:
+  enabled: false
+  path: contrib/program
+  # e.g. http://stream-live-stream-packager-cubemap.default.svc.cluster.local:9094/stream.ts
+  sourceURL: ""
+  # With networkPolicy.enabled: where sourceURL resolves to, and its port.
+  # The Service's ClusterIP range does not match a NetworkPolicy; name the
+  # pod's own address range (the node network if Cubemap uses hostNetwork).
+  sourceCIDRs: []
+  sourcePort: 9094
+  videoHeight: 360
+  videoBitrate: 1M
+  videoFps: 25
+  startTimeout: 15s
+  closeAfter: 10s
+
 # Keeps MediaMTX, and the pull relay inside it, from opening connections to
 # the cluster or the LAN: an address a member typed in is fetched from here.
 # Replies to connections made to MediaMTX are always allowed.
@@ -98,6 +120,12 @@ preview:
   # the converter outlives its last reader.
   startTimeout: 5s
   closeAfter: 10s
+
+# MediaMTX's control API, for Django to read what signal each source is
+# receiving (format, bitrate, SRT loss). In-cluster only, as the Service
+# mediamtx-api on port 9997; Django authenticates every request.
+api:
+  enabled: false
 
 monitoring:
   enabled: false
