@@ -87,6 +87,11 @@ spec:
               containerPort: 9998
               protocol: TCP
 {{- end }}
+{{- if .Values.api.enabled }}
+            - name: api
+              containerPort: 9997
+              protocol: TCP
+{{- end }}
           readinessProbe:
             tcpSocket:
               port: rtsp

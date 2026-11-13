@@ -47,6 +47,26 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(config["authHTTPExclude"], [{"action": "metrics"}])
         self.assertFalse(config["api"])
 
+    def test_api_is_off_unless_asked_for(self):
+        documents = render()
+        config = yaml.safe_load(find(documents, "ConfigMap", "mediamtx")["data"]["mediamtx.yml"])
+        self.assertFalse(config["api"])
+        self.assertFalse(any(d["metadata"]["name"] == "mediamtx-api" for d in documents))
+
+    def test_api_is_private_and_stays_behind_django_auth(self):
+        documents = render("api.enabled=true", "monitoring.enabled=true")
+        config = yaml.safe_load(find(documents, "ConfigMap", "mediamtx")["data"]["mediamtx.yml"])
+        self.assertTrue(config["api"])
+        self.assertEqual(config["apiAddress"], ":9997")
+        self.assertEqual(config["authHTTPExclude"], [{"action": "metrics"}])
+        service = find(documents, "Service", "mediamtx-api")
+        self.assertEqual(service["spec"]["type"], "ClusterIP")
+        self.assertEqual(service["spec"]["ports"][0]["targetPort"], "api")
+        ports = find(documents, "Service", "mediamtx")["spec"]["ports"]
+        self.assertNotIn(9997, [p["port"] for p in ports])
+        container = find(documents, "Deployment", "mediamtx")["spec"]["template"]["spec"]["containers"][0]
+        self.assertIn(9997, [p["containerPort"] for p in container["ports"]])
+
     def test_operator_resources_are_explicitly_opted_in(self):
         documents = render("monitoring.enabled=true", "monitoring.serviceMonitor.enabled=true",
                            "monitoring.serviceMonitor.additionalLabels.release=kube-prometheus-stack")

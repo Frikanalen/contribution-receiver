@@ -131,7 +131,22 @@ installed. It supports `interval`, `scrapeTimeout` and `additionalLabels`, such
 as `release: kube-prometheus-stack`. Enabling a ServiceMonitor while metrics are
 disabled is rejected. Metrics port 9998 is not on the public LoadBalancer or
 Ingress. Only the internal metrics action is excluded from Django HTTP auth;
-media publish/read checks remain enforced. The management API remains disabled.
+media publish/read checks remain enforced.
+
+## Signal reports for Django
+
+```yaml
+api:
+  enabled: true
+```
+
+turns on MediaMTX's control API on port 9997, behind the ClusterIP Service
+`mediamtx-api`. Django reads it to tell members what signal a source is
+receiving: point Django's `FK_MEDIAMTX_API_URL` at
+`http://mediamtx-api.<namespace>.svc.cluster.local:9997`. The port is not on
+the public LoadBalancer or Ingress, and the API is not excluded from Django's
+HTTP auth: Django accepts only a short-lived token it signs for itself, so no
+other client in the cluster can use the API. It is off by default.
 
 ## Deployment and validation
 

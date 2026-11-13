@@ -23,7 +23,12 @@ data:
 {{- else }}
     authHTTPExclude: []
 {{- end }}
-    api: false
+    # Every API request is authenticated by Django like any other, and
+    # Django accepts only the token it signs for itself.
+    api: {{ .Values.api.enabled }}
+{{- if .Values.api.enabled }}
+    apiAddress: :9997
+{{- end }}
     metrics: {{ .Values.monitoring.enabled }}
 {{- if .Values.monitoring.enabled }}
     metricsAddress: :9998

@@ -99,6 +99,12 @@ preview:
   startTimeout: 5s
   closeAfter: 10s
 
+# MediaMTX's control API, for Django to read what signal each source is
+# receiving (format, bitrate, SRT loss). In-cluster only, as the Service
+# mediamtx-api on port 9997; Django authenticates every request.
+api:
+  enabled: false
+
 monitoring:
   enabled: false
   serviceMonitor:
