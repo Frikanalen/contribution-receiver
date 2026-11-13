@@ -106,8 +106,9 @@ publishes, MediaMTX runs it, and it asks Django
   and restarts it if the remote end drops.
 
 The address is a secret, so the relay fetches it on each start and scrubs it
-from FFmpeg's log lines. For HLS, give the media playlist of the variant to
-pull; with a master playlist FFmpeg takes the first variant's video.
+from FFmpeg's log lines. HLS is read at the speed it plays, so the picture
+does not move in bursts of a segment at a time, and from a master playlist
+the relay takes the variant with the highest bitrate.
 
 `networkPolicy.enabled` keeps MediaMTX from opening connections to private
 addresses (the LAN, pods, services) other than Django and DNS, since the relay

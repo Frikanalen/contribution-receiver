@@ -39,7 +39,7 @@ pull:
   addressURL: http://django-api.default.svc.cluster.local:8080/api/mediamtx/pull
   # How long readers wait for the first packets (HLS can take several
   # seconds), and how long the pull outlives its last reader.
-  startTimeout: 15s
+  startTimeout: 20s
   closeAfter: 30s
   audioBitrate: 192k
 
@@ -62,7 +62,7 @@ programReturn:
   videoHeight: 360
   videoBitrate: 1M
   videoFps: 25
-  startTimeout: 15s
+  startTimeout: 20s
   closeAfter: 10s
 
 # Keeps MediaMTX, and the pull relay inside it, from opening connections to

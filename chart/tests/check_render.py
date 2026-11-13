@@ -174,12 +174,17 @@ class RenderTests(unittest.TestCase):
         self.assertTrue(name.startswith("~^contrib/live/("))
         self.assertEqual(path["runOnDemand"], "/pull/pull-source $G1 $RTSP_PORT $MTX_PATH")
         self.assertTrue(path["runOnDemandRestart"])
-        self.assertEqual(path["runOnDemandStartTimeout"], "15s")
+        self.assertEqual(path["runOnDemandStartTimeout"], "20s")
         script = find(documents, "ConfigMap", "mediamtx-pull")["data"]["pull-source"]
         self.assertTrue(script.startswith("#!/bin/sh"))
         self.assertIn("-protocol_whitelist", script)
         self.assertIn('"rtsp://127.0.0.1:$2/$3"', script)
         self.assertNotIn("http://*)", script)
+        # HLS is read at playing speed, and the best variant of a master
+        # playlist is taken rather than the first.
+        self.assertIn('input_options="-re"', script)
+        self.assertIn("variant_bitrate", script)
+        self.assertIn("-map 0:p:$best:v:0", script)
         pod = find(documents, "Deployment", "mediamtx")["spec"]["template"]["spec"]
         container = pod["containers"][0]
         self.assertTrue(container["image"].endswith("-ffmpeg"))
