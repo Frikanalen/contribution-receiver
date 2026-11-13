@@ -117,8 +117,11 @@ preview:
   opusBitrate: 96k
   opusFrameDuration: 10
   # How long a reader waits for the converter's first packets, and how long
-  # the converter outlives its last reader.
-  startTimeout: 5s
+  # the converter outlives its last reader. The converter reads the live
+  # path, so for a pulled source it waits for the pull relay first: keep
+  # this longer than pull.startTimeout, or the preview gives up just before
+  # the picture arrives.
+  startTimeout: 25s
   closeAfter: 10s
 
 # MediaMTX's control API, for Django to read what signal each source is
