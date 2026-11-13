@@ -194,6 +194,18 @@ class RenderTests(unittest.TestCase):
         self.assertIn("/pull", [m["mountPath"] for m in container["volumeMounts"]])
         render("pull.enabled=true", succeeds=False)
 
+    def test_the_preview_waits_longer_than_the_pull_takes_to_start(self):
+        documents = render(
+            "pull.enabled=true", "pull.credentialSecret=mediamtx-pull", "preview.enabled=true"
+        )
+        config = yaml.safe_load(find(documents, "ConfigMap", "mediamtx")["data"]["mediamtx.yml"])
+        seconds = {
+            ("preview" if "preview" in name else "live"): int(path["runOnDemandStartTimeout"][:-1])
+            for name, path in config["paths"].items()
+            if "runOnDemandStartTimeout" in path and ("live" in name or "preview" in name)
+        }
+        self.assertGreater(seconds["preview"], seconds["live"])
+
     def test_network_policy_keeps_mediamtx_off_the_lan_but_lets_it_reach_django(self):
         documents = render("networkPolicy.enabled=true")
         policy = find(documents, "NetworkPolicy", "mediamtx-egress")
