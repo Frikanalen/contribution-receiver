@@ -185,6 +185,13 @@ class RenderTests(unittest.TestCase):
         self.assertIn('input_options="-re"', script)
         self.assertIn("variant_bitrate", script)
         self.assertIn("-map 0:p:$best:v:0", script)
+        # Without a preference the first sound track is taken; with one, the
+        # list reaches the relay as written.
+        self.assertIn('prefs=""', script)
+        self.assertIn("#audio=", script)
+        swedish = render("pull.enabled=true", "pull.credentialSecret=mediamtx-pull", "pull.audioLanguages=sv\\,da")
+        script = find(swedish, "ConfigMap", "mediamtx-pull")["data"]["pull-source"]
+        self.assertIn('prefs="sv,da"', script)
         pod = find(documents, "Deployment", "mediamtx")["spec"]["template"]["spec"]
         container = pod["containers"][0]
         self.assertTrue(container["image"].endswith("-ffmpeg"))

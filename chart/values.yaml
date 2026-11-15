@@ -42,6 +42,11 @@ pull:
   startTimeout: 20s
   closeAfter: 30s
   audioBitrate: 192k
+  # For a playlist with sound in several languages: language tags to prefer,
+  # in order, as the playlist names them (EXT-X-MEDIA LANGUAGE). Empty, or no
+  # match, takes the first track. E.g. "sv,da" for EbS: Swedish, then Danish.
+  # A source overrides it by ending its pull address with #audio=sv,en.
+  audioLanguages: ""
 
 # Programme return: a low-latency copy of what the channel is airing, for the
 # monitor a crew keeps up at a live transmission. While someone watches,
