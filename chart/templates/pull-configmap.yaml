@@ -33,6 +33,14 @@ data:
       exec sleep 2147483647
     fi
 
+    # Sound languages to prefer, in order, as the playlist tags them. The
+    # chart sets a default; a source can override it by ending its address
+    # with #audio=sv,en (the fragment never leaves the relay).
+    prefs="{{ .Values.pull.audioLanguages }}"
+    case "$url" in
+      *'#audio='*) prefs="${url##*#audio=}"; url="${url%%#*}" ;;
+    esac
+
     # What FFmpeg may open for each kind of address. Never file: or plain
     # HTTP, which an HLS playlist could otherwise point at.
     input_options=""
@@ -56,12 +64,38 @@ data:
       # picture and sound together. Without an answer FFmpeg chooses itself
       # (the largest picture), which also suits a plain media playlist.
       maps=""
-      best=$(ffprobe -v error -protocol_whitelist "$allow" -rw_timeout 15000000 \
-        -show_entries program=program_id:program_tags=variant_bitrate -of csv=p=0 "$url" 2>/dev/null |
-        awk -F, '$1 ~ /^[0-9]+$/ && $2 + 0 > max { max = $2 + 0; id = $1 } END { if (id != "") print id }')
+      probe=$(ffprobe -v error -protocol_whitelist "$allow" -rw_timeout 15000000 \
+        -show_entries program=program_id:program_tags=variant_bitrate:program_stream=index,codec_type:program_stream_tags=language \
+        -of flat "$url" 2>/dev/null)
+      # A playlist may also carry the sound in several languages (EbS has
+      # the floor and 24 interpretations). Take the first language in the
+      # preference list that the chosen variant offers, else its first track.
+      choice=$(printf '%s\n' "$probe" | awk -F= -v prefs="$prefs" '
+        { split($1, k, "."); v = $2; gsub(/"/, "", v) }
+        $1 ~ /^programs\.program\.[0-9]+\.program_id$/ { pid[k[3]] = v }
+        $1 ~ /^programs\.program\.[0-9]+\.tags\.variant_bitrate$/ && v ~ /^[0-9]+$/ && v + 0 > max { max = v + 0; best = k[3] }
+        $1 ~ /\.streams\.stream\.[0-9]+\.index$/ { idx[k[3], k[6]] = v; n[k[3]] = k[6] + 1 > n[k[3]] ? k[6] + 1 : n[k[3]] }
+        $1 ~ /\.streams\.stream\.[0-9]+\.codec_type$/ { typ[k[3], k[6]] = v }
+        $1 ~ /\.streams\.stream\.[0-9]+\.tags\.language$/ { lang[k[3], k[6]] = tolower(v) }
+        END {
+          if (best == "") exit
+          audio = ""
+          np = split(tolower(prefs), want, ",")
+          for (w = 1; w <= np && audio == ""; w++)
+            for (s = 0; s < n[best]; s++)
+              if (typ[best, s] == "audio" && want[w] != "" && lang[best, s] == want[w]) { audio = idx[best, s]; break }
+          print pid[best], audio
+        }')
+      best=${choice%% *}
+      audio=${choice#* }
       if [ -n "$best" ]; then
         maps="-map 0:p:$best:v:0 -map 0:p:$best:a:0?"
-        say "taking variant $best of the playlist"
+        if [ -n "$audio" ]; then
+          maps="-map 0:p:$best:v:0 -map 0:$audio"
+          say "taking variant $best of the playlist, sound from stream $audio"
+        else
+          say "taking variant $best of the playlist"
+        fi
       fi
     fi
 
