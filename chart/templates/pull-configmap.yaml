@@ -12,7 +12,7 @@ data:
     # and nobody publishes there, and stops it (SIGINT to the whole process
     # group) once the last reader has been gone a while.
     #
-    #   $1  the source UUID    $2  MediaMTX's RTSP port    $3  the path
+    #   $1  the source UUID    $2  (unused; was the RTSP port)    $3  the path
     #
     # The pull address is a secret (passphrases, stream keys and tokens ride
     # in it), so it is fetched from Django on each start, never stored here,
@@ -53,7 +53,12 @@ data:
       *) say "refusing an address of an unknown kind"; exit 1 ;;
     esac
 
-    out="rtsp://127.0.0.1:$2/$3"
+    # Published back over loopback SRT (MPEG-TS), not RTSP: MediaMTX keeps
+    # the MPEG-TS timestamps, which picture and sound share, whereas it
+    # re-times each RTSP track by arrival, so start-up lag on the source
+    # ended up as a few hundred ms of A/V offset for every reader. ($2, the
+    # RTSP port, is no longer used.)
+    out="srt://127.0.0.1:8890?streamid=publish:$3&pkt_size=1316"
     video="$url"
     audio=""
     base=""
@@ -150,8 +155,7 @@ data:
     # and sound stay in step however far apart their live edges begin. No
     # -start_at_zero: it shifts EACH input by its own first timestamp, which
     # puts the sound a whole segment (or more) off the picture. The kept
-    # timestamps are epoch-sized, though, and RTSP readers then misplace the
-    # sound by a few hundred ms, so -avoid_negative_ts make_zero moves every
+    # timestamps are epoch-sized, so -avoid_negative_ts make_zero moves every
     # track back by ONE shared offset to start near zero.
     # shellcheck disable=SC2086
     if [ -n "$audio" ]; then
@@ -160,10 +164,8 @@ data:
     else
       set -- $input_options -i "$video" $maps
     fi
-    # -muxdelay 0 and -flush_packets 1: without them the RTP muxer holds
-    # packets back by its default delay, and the copied picture and the
-    # re-encoded sound leave at different times. MediaMTX timestamps what it
-    # receives, so readers got the sound ~0.3 s behind the picture.
+    # -muxdelay 0 and -flush_packets 1: send each packet as it is made,
+    # rather than holding it back by the muxer's default delay.
     ffmpeg -nostdin -hide_banner -loglevel warning \
       -protocol_whitelist "$allow" -rw_timeout 15000000 \
       "$@" \
@@ -172,7 +174,7 @@ data:
       -c:a aac -b:a {{ .Values.pull.audioBitrate }} -ar 48000 -ac 2 \
       -avoid_negative_ts make_zero \
       -flush_packets 1 -muxdelay 0 \
-      -f rtsp -rtsp_transport tcp "$out" 2>&1 |
+      -f mpegts "$out" 2>&1 |
       awk -v u1="$video" -v u2="$audio" -v u3="$url" -v u4="$base" -v id="$id" '{
         # Every address that came from the pull address is as secret as it.
         split(u1 "\n" u2 "\n" u3 "\n" u4, us, "\n")
