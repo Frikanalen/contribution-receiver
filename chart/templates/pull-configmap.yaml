@@ -160,6 +160,10 @@ data:
     else
       set -- $input_options -i "$video" $maps
     fi
+    # -muxdelay 0 and -flush_packets 1: without them the RTP muxer holds
+    # packets back by its default delay, and the copied picture and the
+    # re-encoded sound leave at different times. MediaMTX timestamps what it
+    # receives, so readers got the sound ~0.3 s behind the picture.
     ffmpeg -nostdin -hide_banner -loglevel warning \
       -protocol_whitelist "$allow" -rw_timeout 15000000 \
       "$@" \
@@ -167,6 +171,7 @@ data:
       -af aresample=async=1 \
       -c:a aac -b:a {{ .Values.pull.audioBitrate }} -ar 48000 -ac 2 \
       -avoid_negative_ts make_zero \
+      -flush_packets 1 -muxdelay 0 \
       -f rtsp -rtsp_transport tcp "$out" 2>&1 |
       awk -v u1="$video" -v u2="$audio" -v u3="$url" -v u4="$base" -v id="$id" '{
         # Every address that came from the pull address is as secret as it.
