@@ -178,7 +178,11 @@ class RenderTests(unittest.TestCase):
         script = find(documents, "ConfigMap", "mediamtx-pull")["data"]["pull-source"]
         self.assertTrue(script.startswith("#!/bin/sh"))
         self.assertIn("-protocol_whitelist", script)
-        self.assertIn('"rtsp://127.0.0.1:$2/$3"', script)
+        # Published back over loopback SRT/MPEG-TS, which keeps picture and
+        # sound on shared timestamps (RTSP re-timed each track by arrival).
+        self.assertIn('out="srt://127.0.0.1:8890?streamid=publish:$3&pkt_size=1316"', script)
+        self.assertIn('-f mpegts "$out"', script)
+        self.assertNotIn("-f rtsp", script)
         self.assertNotIn("http://*)", script)
         # HLS is read at playing speed. The relay reads a master playlist
         # itself (no ffprobe, which opens every rendition and outlasts the

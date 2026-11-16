@@ -97,8 +97,11 @@ publishes, MediaMTX runs it, and it asks Django
 `pull.credentialSecret`) for the source's address.
 
 - A pulled source: FFmpeg reads the address and publishes it back over
-  loopback RTSP, video copied and audio re-encoded to AAC 48 kHz stereo.
-  Django lets loopback publish a pulled source's contribution path only.
+  loopback SRT (MPEG-TS), video copied and audio re-encoded to AAC 48 kHz
+  stereo. SRT, not RTSP, because MediaMTX keeps the MPEG-TS timestamps that
+  picture and sound share, while it re-times RTSP tracks by arrival. Django
+  lets loopback publish a pulled source's contribution path only (over SRT
+  this needs django-api with SRT relay support).
 - A pushed source: Django answers 204 and the relay idles until MediaMTX
   stops it. Readers waiting for an encoder now wait up to
   `pull.startTimeout` instead of being refused at once.
