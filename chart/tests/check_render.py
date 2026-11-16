@@ -194,6 +194,7 @@ class RenderTests(unittest.TestCase):
         self.assertIn('set -- -copyts \\', script)
         self.assertNotIn('-copyts -start_at_zero', script)
         self.assertNotIn('first_pts=0', script)
+        self.assertIn('-avoid_negative_ts make_zero', script)
         self.assertIn('-i "$video" $input_options -i "$audio" -map 0:v:0 -map 1:a:0', script)
         # Derived playlist addresses are scrubbed from the log like the address.
         self.assertIn('-v u1="$video" -v u2="$audio" -v u3="$url"', script)
