@@ -107,8 +107,14 @@ publishes, MediaMTX runs it, and it asks Django
 
 The address is a secret, so the relay fetches it on each start and scrubs it
 from FFmpeg's log lines. HLS is read at the speed it plays, so the picture
-does not move in bursts of a segment at a time, and from a master playlist
-the relay takes the variant with the highest bitrate.
+does not move in bursts of a segment at a time. The relay reads a master
+playlist itself (FFmpeg would open every rendition first, which for EbS's 30
+sound tracks takes longer than `pull.startTimeout`): it takes the variant with
+the highest `BANDWIDTH`, and from that variant's audio group the first
+`LANGUAGE` in `pull.audioLanguages` (or the address's `#audio=sv,en` suffix),
+else the group's `DEFAULT`, else its first track. FFmpeg then gets just those
+two playlists, their timestamps kept (`-copyts -start_at_zero`) so picture and
+sound stay in step. Sound muxed into the variant is used as is.
 
 `networkPolicy.enabled` keeps MediaMTX from opening connections to private
 addresses (the LAN, pods, services) other than Django and DNS, since the relay

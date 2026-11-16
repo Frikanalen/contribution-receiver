@@ -53,65 +53,123 @@ data:
       *) say "refusing an address of an unknown kind"; exit 1 ;;
     esac
 
+    out="rtsp://127.0.0.1:$2/$3"
+    video="$url"
+    audio=""
+    base=""
     maps="-map 0:v:0 -map 0:a:0?"
     if [ -n "$hls" ]; then
       # HLS arrives a segment at a time: unpaced, the picture runs for a
       # moment and then stands still until the next segment. -re reads it
       # at the speed it plays.
       input_options="-re"
-      # A master playlist lists the same programme at several qualities,
-      # lowest first as often as not. Take the one with the highest bitrate,
-      # picture and sound together. Without an answer FFmpeg chooses itself
-      # (the largest picture), which also suits a plain media playlist.
-      maps=""
-      probe=$(ffprobe -v error -protocol_whitelist "$allow" -rw_timeout 15000000 \
-        -show_entries program=program_id:program_tags=variant_bitrate:program_stream=index,codec_type:program_stream_tags=language \
-        -of flat "$url" 2>/dev/null)
-      # A playlist may also carry the sound in several languages (EbS has
-      # the floor and 24 interpretations). Take the first language in the
-      # preference list that the chosen variant offers, else its first track.
-      choice=$(printf '%s\n' "$probe" | awk -F= -v prefs="$prefs" '
-        { split($1, k, "."); v = $2; gsub(/"/, "", v) }
-        $1 ~ /^programs\.program\.[0-9]+\.program_id$/ { pid[k[3]] = v }
-        $1 ~ /^programs\.program\.[0-9]+\.tags\.variant_bitrate$/ && v ~ /^[0-9]+$/ && v + 0 > max { max = v + 0; best = k[3] }
-        $1 ~ /\.streams\.stream\.[0-9]+\.index$/ { idx[k[3], k[6]] = v; n[k[3]] = k[6] + 1 > n[k[3]] ? k[6] + 1 : n[k[3]] }
-        $1 ~ /\.streams\.stream\.[0-9]+\.codec_type$/ { typ[k[3], k[6]] = v }
-        $1 ~ /\.streams\.stream\.[0-9]+\.tags\.language$/ { lang[k[3], k[6]] = tolower(v) }
-        END {
-          if (best == "") exit
-          audio = ""
-          np = split(tolower(prefs), want, ",")
-          for (w = 1; w <= np && audio == ""; w++)
-            for (s = 0; s < n[best]; s++)
-              if (typ[best, s] == "audio" && want[w] != "" && lang[best, s] == want[w]) { audio = idx[best, s]; break }
-          print pid[best], audio
-        }')
-      best=${choice%% *}
-      audio=${choice#* }
-      if [ -n "$best" ]; then
-        maps="-map 0:p:$best:v:0 -map 0:p:$best:a:0?"
-        if [ -n "$audio" ]; then
-          maps="-map 0:p:$best:v:0 -map 0:$audio"
-          say "taking variant $best of the playlist, sound from stream $audio"
-        else
-          say "taking variant $best of the playlist"
-        fi
+      # Read the playlist ourselves rather than letting FFmpeg probe it: a
+      # master playlist with many sound tracks (EbS has the floor and 29
+      # interpretations) makes FFmpeg open every one of them, which takes
+      # longer than MediaMTX waits for the pull to start. Instead pick the
+      # variant and the sound track here and give FFmpeg just those two.
+      if ! playlist=$(wget -q -T 15 -O - "$url" | head -c 1048576 | tr -d '\r'); then
+        say "cannot fetch the playlist"
+        exit 1
       fi
+      case "$playlist" in
+        *'#EXT-X-STREAM-INF'*)
+          # The variant with the highest BANDWIDTH (lowest first as often as
+          # not), and in its AUDIO group the first track whose LANGUAGE is in
+          # the preference list, else the group's DEFAULT, else its first.
+          choice=$(printf '%s\n' "$playlist" | awk -v prefs="$prefs" '
+            function attr(line, name,   s) {
+              if (match(line, "[:,]" name "=\"[^\"]*\"")) {
+                s = substr(line, RSTART, RLENGTH); sub(/^[:,][^=]*="/, "", s); sub(/"$/, "", s); return s
+              }
+              if (match(line, "[:,]" name "=[^,]*")) {
+                s = substr(line, RSTART, RLENGTH); sub(/^[:,][^=]*=/, "", s); return s
+              }
+              return ""
+            }
+            /^#EXT-X-MEDIA:/ && attr($0, "TYPE") == "AUDIO" {
+              n++; grp[n] = attr($0, "GROUP-ID"); lang[n] = tolower(attr($0, "LANGUAGE"))
+              uri[n] = attr($0, "URI"); def[n] = attr($0, "DEFAULT") == "YES"
+            }
+            /^#EXT-X-STREAM-INF:/ { pending = 1; bw = attr($0, "BANDWIDTH") + 0; ag = attr($0, "AUDIO"); next }
+            pending && /^[^#]/ {
+              if (vuri == "" || bw > best) { best = bw; vuri = $0; group = ag }
+              pending = 0
+            }
+            END {
+              if (vuri == "") exit
+              a = 0
+              np = split(tolower(prefs), want, ",")
+              for (w = 1; w <= np && !a; w++)
+                for (i = 1; i <= n; i++)
+                  if (grp[i] == group && group != "" && want[w] != "" && lang[i] == want[w]) { a = i; break }
+              for (i = 1; i <= n && !a; i++) if (grp[i] == group && group != "" && def[i]) a = i
+              for (i = 1; i <= n && !a; i++) if (grp[i] == group && group != "") a = i
+              print best
+              print vuri
+              print (a ? uri[a] : "")
+              print (a ? (lang[a] == "" ? "untagged" : lang[a]) : "")
+            }')
+          bandwidth=$(printf '%s\n' "$choice" | sed -n 1p)
+          video_uri=$(printf '%s\n' "$choice" | sed -n 2p)
+          audio_uri=$(printf '%s\n' "$choice" | sed -n 3p)
+          audio_lang=$(printf '%s\n' "$choice" | sed -n 4p)
+          if [ -z "$video_uri" ]; then
+            say "the master playlist lists no variant"
+            exit 1
+          fi
+          # Relative addresses are relative to the master playlist, not
+          # counting its query.
+          base="${url%%\?*}"
+          base="${base%/*}/"
+          # An absolute address is taken as written; FFmpeg's protocol
+          # whitelist still refuses anything but HTTPS.
+          resolve() {
+            case "$1" in
+              *://*) printf '%s' "$1" ;;
+              /*) printf '%s%s' "$(printf '%s' "$url" | sed -E 's#^([a-z]+://[^/]+).*#\1#')" "$1" ;;
+              *) printf '%s%s' "$base" "$1" ;;
+            esac
+          }
+          video=$(resolve "$video_uri")
+          if [ -n "$audio_uri" ]; then
+            audio=$(resolve "$audio_uri")
+            say "taking the $bandwidth b/s variant, sound in $audio_lang from its own playlist"
+          else
+            # The sound is in the variant itself (or there is none).
+            say "taking the $bandwidth b/s variant${audio_lang:+, sound in $audio_lang muxed with the picture}"
+          fi
+          ;;
+      esac
     fi
 
     say "pulling from $(echo "$url" | sed -E 's#^([a-z]+://)([^@/]*@)?([^/?]*).*#\1\3#')"
+    # The inputs: the address (or the chosen variant), and for a separate
+    # sound playlist a second input. The two HLS playlists keep their own
+    # timestamps (-copyts), shifted together to start at zero, so picture
+    # and sound stay in step however far apart their live edges begin.
     # shellcheck disable=SC2086
+    if [ -n "$audio" ]; then
+      set -- -copyts -start_at_zero \
+        $input_options -i "$video" $input_options -i "$audio" -map 0:v:0 -map 1:a:0
+    else
+      set -- $input_options -i "$video" $maps
+    fi
     ffmpeg -nostdin -hide_banner -loglevel warning \
-      -protocol_whitelist "$allow" -rw_timeout 15000000 $input_options \
-      -i "$url" \
-      $maps \
+      -protocol_whitelist "$allow" -rw_timeout 15000000 \
+      "$@" \
       -c:v copy \
-      -af aresample=async=1 \
+      -af aresample=async=1:first_pts=0 \
       -c:a aac -b:a {{ .Values.pull.audioBitrate }} -ar 48000 -ac 2 \
-      -f rtsp -rtsp_transport tcp "rtsp://127.0.0.1:$2/$3" 2>&1 |
-      awk -v u="$url" -v id="$id" '{
-        while (u != "" && (i = index($0, u)) > 0)
-          $0 = substr($0, 1, i - 1) "<pull address>" substr($0, i + length(u))
+      -f rtsp -rtsp_transport tcp "$out" 2>&1 |
+      awk -v u1="$video" -v u2="$audio" -v u3="$url" -v u4="$base" -v id="$id" '{
+        # Every address that came from the pull address is as secret as it.
+        split(u1 "\n" u2 "\n" u3 "\n" u4, us, "\n")
+        for (k = 1; k <= 4; k++) {
+          u = us[k]
+          while (u != "" && (i = index($0, u)) > 0)
+            $0 = substr($0, 1, i - 1) "<pull address>" substr($0, i + length(u))
+        }
         print "pull-source " id ": " $0
         fflush()
       }' >&2

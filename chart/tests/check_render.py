@@ -180,11 +180,19 @@ class RenderTests(unittest.TestCase):
         self.assertIn("-protocol_whitelist", script)
         self.assertIn('"rtsp://127.0.0.1:$2/$3"', script)
         self.assertNotIn("http://*)", script)
-        # HLS is read at playing speed, and the best variant of a master
-        # playlist is taken rather than the first.
+        # HLS is read at playing speed. The relay reads a master playlist
+        # itself (no ffprobe, which opens every rendition and outlasts the
+        # start timeout), takes the highest-BANDWIDTH variant, and gives
+        # FFmpeg the variant and the chosen sound playlist as two inputs on
+        # one timeline.
         self.assertIn('input_options="-re"', script)
-        self.assertIn("variant_bitrate", script)
-        self.assertIn("-map 0:p:$best:v:0", script)
+        self.assertNotIn("ffprobe", script)
+        self.assertIn('attr($0, "BANDWIDTH")', script)
+        self.assertIn("#EXT-X-STREAM-INF", script)
+        self.assertIn('-copyts -start_at_zero', script)
+        self.assertIn('-i "$video" $input_options -i "$audio" -map 0:v:0 -map 1:a:0', script)
+        # Derived playlist addresses are scrubbed from the log like the address.
+        self.assertIn('-v u1="$video" -v u2="$audio" -v u3="$url"', script)
         # Without a preference the first sound track is taken; with one, the
         # list reaches the relay as written.
         self.assertIn('prefs=""', script)
