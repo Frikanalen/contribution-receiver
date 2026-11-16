@@ -146,11 +146,13 @@ data:
     say "pulling from $(echo "$url" | sed -E 's#^([a-z]+://)([^@/]*@)?([^/?]*).*#\1\3#')"
     # The inputs: the address (or the chosen variant), and for a separate
     # sound playlist a second input. The two HLS playlists keep their own
-    # timestamps (-copyts), shifted together to start at zero, so picture
-    # and sound stay in step however far apart their live edges begin.
+    # timestamps (-copyts), which share the packager's timeline, so picture
+    # and sound stay in step however far apart their live edges begin. No
+    # -start_at_zero: it shifts EACH input by its own first timestamp, which
+    # puts the sound a whole segment (or more) off the picture.
     # shellcheck disable=SC2086
     if [ -n "$audio" ]; then
-      set -- -copyts -start_at_zero \
+      set -- -copyts \
         $input_options -i "$video" $input_options -i "$audio" -map 0:v:0 -map 1:a:0
     else
       set -- $input_options -i "$video" $maps
@@ -159,7 +161,7 @@ data:
       -protocol_whitelist "$allow" -rw_timeout 15000000 \
       "$@" \
       -c:v copy \
-      -af aresample=async=1:first_pts=0 \
+      -af aresample=async=1 \
       -c:a aac -b:a {{ .Values.pull.audioBitrate }} -ar 48000 -ac 2 \
       -f rtsp -rtsp_transport tcp "$out" 2>&1 |
       awk -v u1="$video" -v u2="$audio" -v u3="$url" -v u4="$base" -v id="$id" '{

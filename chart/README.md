@@ -113,8 +113,8 @@ sound tracks takes longer than `pull.startTimeout`): it takes the variant with
 the highest `BANDWIDTH`, and from that variant's audio group the first
 `LANGUAGE` in `pull.audioLanguages` (or the address's `#audio=sv,en` suffix),
 else the group's `DEFAULT`, else its first track. FFmpeg then gets just those
-two playlists, their timestamps kept (`-copyts -start_at_zero`) so picture and
-sound stay in step. Sound muxed into the variant is used as is.
+two playlists, their own timestamps kept (`-copyts`, without `-start_at_zero`, which
+would shift each input separately) so picture and sound stay in step. Sound muxed into the variant is used as is.
 
 `networkPolicy.enabled` keeps MediaMTX from opening connections to private
 addresses (the LAN, pods, services) other than Django and DNS, since the relay
