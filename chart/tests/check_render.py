@@ -189,7 +189,11 @@ class RenderTests(unittest.TestCase):
         self.assertNotIn("ffprobe", script)
         self.assertIn('attr($0, "BANDWIDTH")', script)
         self.assertIn("#EXT-X-STREAM-INF", script)
-        self.assertIn('-copyts -start_at_zero', script)
+        # Both playlists keep the packager's shared timeline: -start_at_zero
+        # would shift each input by its own start and desync them.
+        self.assertIn('set -- -copyts \\', script)
+        self.assertNotIn('-copyts -start_at_zero', script)
+        self.assertNotIn('first_pts=0', script)
         self.assertIn('-i "$video" $input_options -i "$audio" -map 0:v:0 -map 1:a:0', script)
         # Derived playlist addresses are scrubbed from the log like the address.
         self.assertIn('-v u1="$video" -v u2="$audio" -v u3="$url"', script)
