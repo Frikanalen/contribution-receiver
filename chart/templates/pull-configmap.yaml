@@ -149,7 +149,10 @@ data:
     # timestamps (-copyts), which share the packager's timeline, so picture
     # and sound stay in step however far apart their live edges begin. No
     # -start_at_zero: it shifts EACH input by its own first timestamp, which
-    # puts the sound a whole segment (or more) off the picture.
+    # puts the sound a whole segment (or more) off the picture. The kept
+    # timestamps are epoch-sized, though, and RTSP readers then misplace the
+    # sound by a few hundred ms, so -avoid_negative_ts make_zero moves every
+    # track back by ONE shared offset to start near zero.
     # shellcheck disable=SC2086
     if [ -n "$audio" ]; then
       set -- -copyts \
@@ -163,6 +166,7 @@ data:
       -c:v copy \
       -af aresample=async=1 \
       -c:a aac -b:a {{ .Values.pull.audioBitrate }} -ar 48000 -ac 2 \
+      -avoid_negative_ts make_zero \
       -f rtsp -rtsp_transport tcp "$out" 2>&1 |
       awk -v u1="$video" -v u2="$audio" -v u3="$url" -v u4="$base" -v id="$id" '{
         # Every address that came from the pull address is as secret as it.
