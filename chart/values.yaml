@@ -128,6 +128,11 @@ preview:
   # the picture arrives.
   startTimeout: 25s
   closeAfter: 10s
+  # How long (ms) the converter's SRT read waits to connect. Over SRT,
+  # MediaMTX doesn't hold a read while a pull starts, and FFmpeg's default
+  # gives up after ~3 s. Keep it above pull.startTimeout and below
+  # startTimeout.
+  srtConnectTimeout: 22000
 
 # MediaMTX's control API, for Django to read what signal each source is
 # receiving (format, bitrate, SRT loss). In-cluster only, as the Service

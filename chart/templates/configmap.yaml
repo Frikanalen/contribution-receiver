@@ -86,16 +86,22 @@ data:
 {{- if .Values.preview.enabled }}
       # Converted only while someone watches: MediaMTX starts FFmpeg when a
       # reader opens a preview and stops it once the last one leaves. FFmpeg
-      # reads the original and publishes back over loopback RTSP without a
-      # credential; Django accepts exactly that from loopback, for enabled
-      # sources only. $G1 is the source UUID. With no credential in its URLs,
-      # FFmpeg's warnings can go to the MediaMTX log.
+      # reads the original over loopback SRT and publishes back over loopback
+      # RTSP without a credential; Django accepts exactly that from loopback,
+      # for enabled sources only. $G1 is the source UUID. With no credential
+      # in its URLs, FFmpeg's warnings can go to the MediaMTX log.
+      # SRT (MPEG-TS), not RTSP, for the read: MediaMTX keeps the MPEG-TS
+      # timestamps picture and sound share, whereas its RTSP output re-times
+      # each track by arrival, which put the preview's sound ~340 ms late.
+      # Over SRT, MediaMTX doesn't hold the read while a pull starts, so
+      # FFmpeg waits for the connection (connect_timeout, ms) rather than
+      # giving up after ~3 s; it must stay below preview.startTimeout.
       "~^contrib/preview/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$":
         runOnDemand: >-
           sh -c 'exec ffmpeg -nostdin -hide_banner -loglevel warning
-          -rtsp_transport tcp -fflags nobuffer -flags low_delay
+          -fflags nobuffer -flags low_delay
           -analyzeduration 250000 -probesize 262144 -threads 2
-          -i "rtsp://127.0.0.1:$RTSP_PORT/contrib/live/$G1"
+          -i "srt://127.0.0.1:8890?streamid=read:contrib/live/$G1&connect_timeout={{ .Values.preview.srtConnectTimeout }}"
           -map 0:v:0 -map 0:a:0?
           -vf scale=-2:{{ .Values.preview.videoHeight }},fps={{ .Values.preview.videoFps }} -pix_fmt yuv420p
           -c:v libvpx -threads 2 -deadline realtime -cpu-used 8 -lag-in-frames 0
