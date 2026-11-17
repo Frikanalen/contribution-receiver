@@ -143,6 +143,8 @@ class RenderTests(unittest.TestCase):
         # The read is SRT, which keeps picture and sound on shared timestamps.
         self.assertIn("srt://127.0.0.1:8890?streamid=read:contrib/live/$G1", command)
         self.assertNotIn("rtsp://127.0.0.1:$RTSP_PORT/contrib/live/", command)
+        # Waits for a pull to start rather than giving up after ~3 s.
+        self.assertIn("&connect_timeout=22000", command)
         self.assertIn("rtsp://127.0.0.1:$RTSP_PORT/$MTX_PATH", command)
         self.assertTrue(path["runOnDemandRestart"])
 
