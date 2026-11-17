@@ -15,8 +15,8 @@ forwarding. The existing Application name and Kubernetes resource names remain
 - With `pull.enabled`, the pull relay fills pulled sources' contribution
   paths (see "Pulled sources").
 - The on-demand preview converter has no credential. From loopback, it may only
-  read an enabled source's contribution and publish that source's preview over
-  RTSP (see below).
+  read an enabled source's contribution (over SRT) and publish that source's
+  preview (over RTSP); see below.
 
 SRT uses UDP 8890, RTMP TCP 1935 and RTSP interleaved TCP 8554. Infra advertises
 those public URLs in Django admin. Anonymous media reads are not enabled.
@@ -58,8 +58,10 @@ both direct transports need a later TURN deployment.
 Browsers cannot play the contribution's AAC audio, and Firefox plays H.264 only
 with its OpenH264 plugin, so MediaMTX converts the feed to VP8 and Opus on
 demand. When a reader opens `contrib/preview/<source UUID>`, MediaMTX
-starts FFmpeg in its own container. FFmpeg reads `contrib/live/<source UUID>` and
-publishes the preview back over local RTSP. MediaMTX stops it 10 seconds after
+starts FFmpeg in its own container. FFmpeg reads `contrib/live/<source UUID>`
+over local SRT and publishes the preview back over local RTSP. The read is SRT
+(MPEG-TS) because MediaMTX keeps its shared timestamps, whereas its RTSP output
+re-times each track by arrival, which put the preview's sound ~340 ms late. MediaMTX stops it 10 seconds after
 the last reader leaves. New sources need no configuration or restart:
 
 ```yaml
@@ -68,8 +70,9 @@ preview:
 ```
 
 FFmpeg connects over loopback without a credential. Django's callback accepts
-an RTSP request with no password from `127.0.0.1` or `::1`, but only to read an
-enabled source's original or publish that source's preview. Only a process in
+a request with no password from `127.0.0.1` or `::1`, but only to read an
+enabled source's original (SRT or RTSP) or publish that source's preview (RTSP).
+This needs a Django release that allows the loopback SRT read. Only a process in
 the MediaMTX pod can connect from loopback, because outside clients arrive
 through the LoadBalancer. Enabling previews swaps the MediaMTX image for its
 `-ffmpeg` build.

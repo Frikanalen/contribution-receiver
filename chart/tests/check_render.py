@@ -140,7 +140,9 @@ class RenderTests(unittest.TestCase):
         self.assertIn("-c:a libopus -application lowdelay", command)
         self.assertIn("-flush_packets 1 -muxdelay 0", command)
         # Loopback, so Django can recognise the converter without a credential.
-        self.assertIn("rtsp://127.0.0.1:$RTSP_PORT/contrib/live/$G1", command)
+        # The read is SRT, which keeps picture and sound on shared timestamps.
+        self.assertIn("srt://127.0.0.1:8890?streamid=read:contrib/live/$G1", command)
+        self.assertNotIn("rtsp://127.0.0.1:$RTSP_PORT/contrib/live/", command)
         self.assertIn("rtsp://127.0.0.1:$RTSP_PORT/$MTX_PATH", command)
         self.assertTrue(path["runOnDemandRestart"])
 
