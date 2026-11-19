@@ -92,6 +92,11 @@ spec:
               containerPort: 9997
               protocol: TCP
 {{- end }}
+{{- if .Values.recording.enabled }}
+            - name: playback
+              containerPort: 9996
+              protocol: TCP
+{{- end }}
           readinessProbe:
             tcpSocket:
               port: rtsp
@@ -118,6 +123,10 @@ spec:
               mountPath: /pull
               readOnly: true
 {{- end }}
+{{- if .Values.recording.enabled }}
+            - name: recordings
+              mountPath: /recordings
+{{- end }}
       volumes:
         - name: config
           configMap:
@@ -127,4 +136,9 @@ spec:
           configMap:
             name: mediamtx-pull
             defaultMode: 0555
+{{- end }}
+{{- if .Values.recording.enabled }}
+        - name: recordings
+          persistentVolumeClaim:
+            claimName: mediamtx-recordings
 {{- end }}

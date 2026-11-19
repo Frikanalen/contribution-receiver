@@ -1,0 +1,86 @@
+{{- if .Values.recording.enabled }}
+{{- if not .Values.api.enabled }}
+{{- fail "recording.enabled needs api.enabled: Django adds recording paths through the API" }}
+{{- end }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mediamtx-recordings
+  labels:
+    app: mediamtx
+  annotations:
+    # Recordings outlive an uninstall: they may not be archived yet.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ .Values.recording.storageClassName | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.recording.size | quote }}
+---
+# The playback server, for ingest to fetch a recording request's window.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mediamtx-playback
+  labels:
+    app: mediamtx
+spec:
+  type: ClusterIP
+  selector:
+    app: mediamtx
+  ports:
+    - name: playback
+      port: 9996
+      targetPort: playback
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mediamtx-recordings
+  labels:
+    app: mediamtx
+{{- with .Values.monitoring.serviceMonitor.additionalLabels }}
+{{ toYaml . | indent 4 }}
+{{- end }}
+spec:
+  groups:
+    - name: mediamtx-recordings
+      rules:
+        - alert: RecordingVolumeFilling
+          expr: |
+            kubelet_volume_stats_used_bytes{persistentvolumeclaim="mediamtx-recordings", namespace="{{ .Release.Namespace }}"}
+              / kubelet_volume_stats_capacity_bytes{persistentvolumeclaim="mediamtx-recordings", namespace="{{ .Release.Namespace }}"} > 0.8
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: MediaMTX's recording volume is over 80% full
+        - alert: RecordingVolumeNearlyFull
+          expr: |
+            kubelet_volume_stats_used_bytes{persistentvolumeclaim="mediamtx-recordings", namespace="{{ .Release.Namespace }}"}
+              / kubelet_volume_stats_capacity_bytes{persistentvolumeclaim="mediamtx-recordings", namespace="{{ .Release.Namespace }}"} > 0.9
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: MediaMTX's recording volume is over 90% full; recordings will fail
+        - alert: RecordingVolumeWillFill
+          expr: |
+            predict_linear(kubelet_volume_stats_available_bytes{persistentvolumeclaim="mediamtx-recordings", namespace="{{ .Release.Namespace }}"}[6h], 24 * 3600) < 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: MediaMTX's recording volume will fill within a day at this rate
+        - alert: RecordingReceivingNothing
+          expr: |
+            max by (name) (paths{name=~"contrib/record/.*"}) unless max by (name) (rate(paths_inbound_bytes{name=~"contrib/record/.*"}[2m]) > 0)
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Recording {{`{{ $labels.name }}`}} is receiving nothing"
+{{- end }}
+{{- end }}

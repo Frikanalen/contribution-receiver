@@ -140,6 +140,18 @@ preview:
 api:
   enabled: false
 
+# Recordings on request (Django's recordings app): Django adds a path
+# contrib/record/<id> per request through the API, which records to this
+# volume, and ingest fetches the requested window from the playback server
+# (Service mediamtx-playback, port 9996; Django authenticates each fetch).
+# Needs api.enabled. Nothing records without a request.
+recording:
+  enabled: false
+  size: 150Gi
+  storageClassName: ceph-block
+  deleteAfter: 7d
+  segmentDuration: 10m
+
 monitoring:
   enabled: false
   serviceMonitor:

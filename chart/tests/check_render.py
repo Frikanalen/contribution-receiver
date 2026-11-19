@@ -246,5 +246,40 @@ class RenderTests(unittest.TestCase):
         self.assertEqual({p["port"] for p in dns["ports"]}, {53})
 
 
+    def test_recording_is_off_by_default(self):
+        documents = render()
+        config = yaml.safe_load(find(documents, "ConfigMap", "mediamtx")["data"]["mediamtx.yml"])
+        self.assertFalse(config["playback"])
+        self.assertNotIn("recordPath", config["pathDefaults"])
+        self.assertFalse(any(d["kind"] == "PersistentVolumeClaim" for d in documents))
+        render("recording.enabled=true", succeeds=False)  # needs the API
+
+    def test_recording_volume_playback_and_alerts(self):
+        documents = render("recording.enabled=true", "api.enabled=true", "monitoring.enabled=true",
+                           "monitoring.serviceMonitor.enabled=true")
+        config = yaml.safe_load(find(documents, "ConfigMap", "mediamtx")["data"]["mediamtx.yml"])
+        self.assertTrue(config["playback"])
+        self.assertEqual(config["playbackAddress"], ":9996")
+        defaults = config["pathDefaults"]
+        self.assertFalse(defaults["record"])
+        self.assertEqual(defaults["recordFormat"], "fmp4")
+        self.assertEqual(defaults["recordDeleteAfter"], "7d")
+        claim = find(documents, "PersistentVolumeClaim", "mediamtx-recordings")
+        self.assertEqual(claim["spec"]["resources"]["requests"]["storage"], "150Gi")
+        pod = find(documents, "Deployment", "mediamtx")["spec"]["template"]["spec"]
+        mounts = {m["name"]: m["mountPath"] for m in pod["containers"][0]["volumeMounts"]}
+        self.assertEqual(mounts["recordings"], "/recordings")
+        volumes = {v["name"]: v for v in pod["volumes"]}
+        self.assertEqual(volumes["recordings"]["persistentVolumeClaim"]["claimName"], "mediamtx-recordings")
+        service = find(documents, "Service", "mediamtx-playback")
+        self.assertEqual(service["spec"]["type"], "ClusterIP")
+        self.assertEqual(service["spec"]["ports"][0]["port"], 9996)
+        public = find(documents, "Service", "mediamtx")["spec"]["ports"]
+        self.assertNotIn(9996, [p["port"] for p in public])
+        rules = find(documents, "PrometheusRule", "mediamtx-recordings")
+        alerts = {r["alert"] for g in rules["spec"]["groups"] for r in g["rules"]}
+        self.assertEqual(alerts, {"RecordingVolumeFilling", "RecordingVolumeNearlyFull",
+                                  "RecordingVolumeWillFill", "RecordingReceivingNothing"})
+
 if __name__ == "__main__":
     unittest.main()
