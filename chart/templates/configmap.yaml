@@ -34,7 +34,12 @@ data:
     metricsAddress: :9998
 {{- end }}
     pprof: false
+{{- if .Values.recording.enabled }}
+    playback: true
+    playbackAddress: :9996
+{{- else }}
     playback: false
+{{- end }}
     rtsp: true
     rtspAddress: :8554
     rtspTransports: [tcp]
@@ -58,6 +63,13 @@ data:
       source: publisher
       overridePublisher: false
       record: false
+{{- if .Values.recording.enabled }}
+      # Only paths Django adds for a recording request switch record on.
+      recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+      recordFormat: fmp4
+      recordSegmentDuration: {{ .Values.recording.segmentDuration | quote }}
+      recordDeleteAfter: {{ .Values.recording.deleteAfter | quote }}
+{{- end }}
       # Regex paths support authenticated ingest; fallback requires an
       # explicit per-source path supplied by the future controller.
       alwaysAvailable: false
