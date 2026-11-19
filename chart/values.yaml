@@ -148,7 +148,7 @@ api:
 recording:
   enabled: false
   size: 150Gi
-  storageClassName: ceph-block
+  storageClassName: ceph-rbd
   deleteAfter: 7d
   segmentDuration: 10m
 
